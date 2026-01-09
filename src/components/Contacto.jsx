@@ -166,7 +166,7 @@ const Contacto = () => {
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-white mb-1">Teléfono</h3>
-                  <p className="text-gray-400 group-hover:text-accent transition-colors">+591 777 12345</p>
+                  <p className="text-gray-400 group-hover:text-accent transition-colors">+591 777 77777</p>
                 </div>
               </div>
 
@@ -179,7 +179,7 @@ const Contacto = () => {
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-white mb-1">Ubicación</h3>
-                  <p className="text-gray-400 group-hover:text-accent transition-colors">La Paz, Bolivia</p>
+                  <p className="text-gray-400 group-hover:text-accent transition-colors">Cochabamba, Bolivia</p>
                 </div>
               </div>
             </div>

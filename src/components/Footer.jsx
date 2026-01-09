@@ -53,7 +53,7 @@ const Footer = () => {
             viewport={{ once: true }}
             transition={{ delay: 0.3 }}
           >
-            © 2025 XpertIA+. Todos los derechos reservados.
+            © 2026 XpertIA+. Todos los derechos reservados.
           </motion.p>
         </div>
       </div>
