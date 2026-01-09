@@ -54,9 +54,6 @@ const AdminLogin = () => {
 
             <div className="max-w-md w-full relative z-10">
                 <div className="text-center mb-10">
-                    <div className="inline-block p-4 rounded-3xl bg-white/5 border border-white/10 mb-6 backdrop-blur-md shadow-2xl">
-                        <span className="text-4xl text-cyan-400">🤖</span>
-                    </div>
                     <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">
                         XpertIA <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">Admin</span>
                     </h1>
@@ -82,6 +79,7 @@ const AdminLogin = () => {
                                 value={formData.email}
                                 onChange={handleChange}
                                 required
+                                autoComplete="username"
                                 className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder:text-slate-600 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 outline-none transition-all"
                                 placeholder="tu@empresa.com"
                             />
@@ -98,6 +96,7 @@ const AdminLogin = () => {
                                     value={formData.password}
                                     onChange={handleChange}
                                     required
+                                    autoComplete="current-password"
                                     className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder:text-slate-600 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 outline-none transition-all pr-14"
                                     placeholder="••••••••"
                                 />

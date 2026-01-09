@@ -2,25 +2,33 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    getProjects,
-    getProjectStats,
     getClients,
-    deleteProject,
     adminLogout,
     getCurrentUser,
 } from '../utils/projectsApi';
+import { useDebounce } from '../hooks/useDebounce';
+import { useProjects } from '../hooks/useProjects';
+import Pagination from '../components/admin/Pagination';
 import ProjectFormModal from '../components/projects/ProjectFormModal';
 import ProjectDetailModal from '../components/projects/ProjectDetailModal';
 
 const ProjectsDashboard = () => {
     const navigate = useNavigate();
-    const [user, setUser] = useState(null);
-    const [projects, setProjects] = useState([]);
-    const [clients, setClients] = useState([]);
-    const [stats, setStats] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+    const [user] = useState(() => getCurrentUser());
+    const {
+        projects,
+        stats,
+        loading,
+        error,
+        totalPages,
+        loadProjects,
+        changeStatus,
+        removeProject,
+        setError
+    } = useProjects();
 
+    const [clients, setClients] = useState([]);
+    
     // Modals state
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -29,63 +37,33 @@ const ProjectsDashboard = () => {
 
     // Filters and pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
     const [search, setSearch] = useState('');
+    const debouncedSearch = useDebounce(search, 500);
     const [statusFilter, setStatusFilter] = useState('');
     const [clientFilter, setClientFilter] = useState('');
 
     useEffect(() => {
-        const currentUser = getCurrentUser();
-        setUser(currentUser);
-        loadData();
+        loadProjects({
+            page: currentPage,
+            search: debouncedSearch,
+            status: statusFilter,
+            client_id: clientFilter
+        });
+    }, [currentPage, debouncedSearch, statusFilter, clientFilter, loadProjects]);
+
+    useEffect(() => {
+        const loadClients = async () => {
+            try {
+                const response = await getClients({ per_page: 100 });
+                if (response.success) {
+                    setClients(response.data.clients);
+                }
+            } catch (err) {
+                console.error('Error loading clients:', err);
+            }
+        };
         loadClients();
-    }, [currentPage, search, statusFilter, clientFilter]);
-
-    const loadData = async () => {
-        try {
-            setLoading(true);
-            setError('');
-
-            const params = {
-                page: currentPage,
-                per_page: 10,
-            };
-
-            if (search) params.search = search;
-            if (statusFilter) params.status = statusFilter;
-            if (clientFilter) params.client_id = clientFilter;
-
-            const [projectsResponse, statsResponse] = await Promise.all([
-                getProjects(params),
-                getProjectStats(),
-            ]);
-
-            if (projectsResponse.success) {
-                setProjects(projectsResponse.data.projects);
-                setTotalPages(projectsResponse.data.pagination.total_pages);
-            }
-
-            if (statsResponse.success) {
-                setStats(statsResponse.data);
-            }
-        } catch (err) {
-            setError('Error al cargar los datos');
-            console.error('Error loading data:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const loadClients = async () => {
-        try {
-            const response = await getClients({ per_page: 100 });
-            if (response.success) {
-                setClients(response.data.clients);
-            }
-        } catch (err) {
-            console.error('Error loading clients:', err);
-        }
-    };
+    }, []);
 
     const handleLogout = async () => {
         try {
@@ -98,18 +76,18 @@ const ProjectsDashboard = () => {
 
     const handleDelete = async (projectId) => {
         if (!confirm('¿Estás seguro de eliminar este proyecto?')) return;
-
-        try {
-            await deleteProject(projectId);
-            loadData();
-            if (selectedProject === projectId) setSelectedProject(null);
-        } catch (err) {
-            setError('Error al eliminar el proyecto');
-            console.error('Error deleting project:', err);
+        const success = await removeProject(projectId);
+        if (success && selectedProject === projectId) {
+            setSelectedProject(null);
         }
     };
 
-    const getStatusBadge = (status) => {
+    const handleStatusChange = async (projectId, newStatus) => {
+        const success = await changeStatus(projectId, newStatus);
+        if (!success) setError('Error al actualizar el estado del proyecto');
+    };
+
+    const getStatusBadge = (project) => {
         const badges = {
             planning: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
             development: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
@@ -129,9 +107,23 @@ const ProjectsDashboard = () => {
         };
 
         return (
-            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${badges[status]} shadow-[0_0_15px_rgba(0,0,0,0.1)]`}>
-                {labels[status]}
-            </span>
+            <div className="relative inline-block group/status">
+                <select
+                    value={project.status}
+                    onChange={(e) => handleStatusChange(project.id, e.target.value)}
+                    className={`appearance-none px-3 py-1 pr-8 rounded-full text-[10px] font-bold border transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-white/20 shadow-lg ${badges[project.status] || 'bg-slate-500/10 text-slate-400 border-slate-500/20'}`}
+                    style={{ WebkitAppearance: 'none' }}
+                >
+                    {Object.entries(labels).map(([value, label]) => (
+                        <option key={value} value={value} className="bg-[#0f1026] text-white py-2">
+                            {label}
+                        </option>
+                    ))}
+                </select>
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[8px] opacity-50 group-hover/status:opacity-100 transition-opacity">
+                    ▼
+                </div>
+            </div>
         );
     };
 
@@ -178,13 +170,13 @@ const ProjectsDashboard = () => {
             {stats && (
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
                     {[
-                        { label: 'Total', value: stats.stats.total, color: 'text-white' },
-                        { label: 'Planificación', value: stats.stats.planning_count, color: 'text-blue-400' },
-                        { label: 'Desarrollo', value: stats.stats.development_count, color: 'text-purple-400' },
-                        { label: 'Pruebas', value: stats.stats.testing_count, color: 'text-amber-400' },
-                        { label: 'Completados', value: stats.stats.completed_count, color: 'text-emerald-400' },
-                        { label: 'Pausados', value: stats.stats.paused_count, color: 'text-orange-400' },
-                        { label: 'Cancelados', value: stats.stats.cancelled_count, color: 'text-red-400' },
+                        { label: 'Total', value: stats.total, color: 'text-white' },
+                        { label: 'Planificación', value: stats.planning_count, color: 'text-blue-400' },
+                        { label: 'Desarrollo', value: stats.development_count, color: 'text-purple-400' },
+                        { label: 'Pruebas', value: stats.testing_count, color: 'text-amber-400' },
+                        { label: 'Completados', value: stats.completed_count, color: 'text-emerald-400' },
+                        { label: 'Pausados', value: stats.paused_count, color: 'text-orange-400' },
+                        { label: 'Cancelados', value: stats.cancelled_count, color: 'text-red-400' },
                     ].map((s, i) => (
                         <div key={i} className="bg-[#0f1026]/40 backdrop-blur-md p-4 rounded-2xl border border-white/5 shadow-xl text-center md:text-left">
                             <p className="text-slate-500 text-[10px] mb-1 font-black uppercase tracking-widest">{s.label}</p>
@@ -280,7 +272,7 @@ const ProjectsDashboard = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-slate-400 text-sm font-medium">{project.client_company}</td>
-                                        <td className="px-6 py-4">{getStatusBadge(project.status)}</td>
+                                        <td className="px-6 py-4">{getStatusBadge(project)}</td>
                                         <td className="px-6 py-4 text-slate-500 text-xs font-semibold">{formatDate(project.start_date)}</td>
                                         <td className="px-6 py-4 text-slate-500 text-xs font-semibold">{formatDate(project.end_date)}</td>
                                         <td className="px-6 py-4">
@@ -321,30 +313,11 @@ const ProjectsDashboard = () => {
                     </div>
                 )}
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                    <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between bg-white/[0.01]">
-                        <button
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-slate-400 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/10 hover:text-white transition-all font-semibold"
-                        >
-                            ← Anterior
-                        </button>
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-500 text-sm">Página</span>
-                            <span className="px-3 py-1 bg-cyan-500/10 text-cyan-400 rounded-lg font-bold border border-cyan-500/20">{currentPage}</span>
-                            <span className="text-slate-500 text-sm">de {totalPages}</span>
-                        </div>
-                        <button
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-slate-400 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/10 hover:text-white transition-all font-semibold"
-                        >
-                            Siguiente →
-                        </button>
-                    </div>
-                )}
+                <Pagination 
+                    currentPage={currentPage} 
+                    totalPages={totalPages} 
+                    onPageChange={setCurrentPage} 
+                />
             </div>
 
             {/* Modals */}
@@ -352,7 +325,13 @@ const ProjectsDashboard = () => {
                 isOpen={isFormOpen}
                 onClose={() => setIsFormOpen(false)}
                 project={editingProject}
-                onSuccess={loadData}
+                onSuccess={() => loadProjects({
+                    page: currentPage,
+                    search: debouncedSearch,
+                    status: statusFilter,
+                    client_id: clientFilter
+                })}
+                clients={clients}
             />
 
             <ProjectDetailModal

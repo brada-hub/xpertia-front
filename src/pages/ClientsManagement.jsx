@@ -2,20 +2,26 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-    getClients,
-    createClient,
-    updateClient,
-    deleteClient,
     getCurrentUser,
     adminLogout
 } from '../utils/projectsApi';
+import { useDebounce } from '../hooks/useDebounce';
+import { useClients } from '../hooks/useClients';
+import Pagination from '../components/admin/Pagination';
 
 const ClientsManagement = () => {
     const navigate = useNavigate();
-    const [user, setUser] = useState(null);
-    const [clients, setClients] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+    const [user] = useState(() => getCurrentUser());
+    const {
+        clients,
+        loading,
+        error,
+        totalPages,
+        loadClients,
+        saveClient,
+        removeClient,
+        setError
+    } = useClients();
 
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -31,46 +37,22 @@ const ClientsManagement = () => {
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
     const [search, setSearch] = useState('');
+    const debouncedSearch = useDebounce(search, 500);
 
     useEffect(() => {
-        setUser(getCurrentUser());
-        loadClients();
-    }, [currentPage, search]);
-
-    const loadClients = async () => {
-        try {
-            setLoading(true);
-            const params = {
-                page: currentPage,
-                per_page: 10,
-                search
-            };
-
-            const response = await getClients(params);
-            if (response.success) {
-                setClients(response.data.clients);
-                setTotalPages(response.data.pagination.total_pages);
-            }
-        } catch (err) {
-            setError('Error al cargar clientes');
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
-    };
+        loadClients({
+            page: currentPage,
+            search: debouncedSearch
+        });
+    }, [currentPage, debouncedSearch, loadClients]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        try {
-            if (editingClient) {
-                await updateClient(editingClient.id, formData);
-            } else {
-                await createClient(formData);
-            }
+        const success = await saveClient(formData, editingClient?.id);
+        if (success) {
             setIsModalOpen(false);
-            loadClients();
+            loadClients({ page: currentPage, search: debouncedSearch });
             setEditingClient(null);
             setFormData({
                 name: '',
@@ -80,18 +62,14 @@ const ClientsManagement = () => {
                 company: '',
                 address: ''
             });
-        } catch (err) {
-            alert('Error al guardar cliente');
         }
     };
 
     const handleDelete = async (id) => {
         if (!confirm('¿Eliminar este cliente? No se puede deshacer.')) return;
-        try {
-            await deleteClient(id);
-            loadClients();
-        } catch (err) {
-            alert('Error al eliminar: ' + (err.message || 'El cliente tiene proyectos asociados'));
+        const success = await removeClient(id);
+        if (!success) {
+            // Error is already set in the hook
         }
     };
 
@@ -214,30 +192,11 @@ const ClientsManagement = () => {
                     </div>
                 )}
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                    <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between bg-white/[0.01]">
-                        <button
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-slate-400 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/10 hover:text-white transition-all font-semibold"
-                        >
-                            ← Anterior
-                        </button>
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-500 text-sm">Página</span>
-                            <span className="px-3 py-1 bg-cyan-500/10 text-cyan-400 rounded-lg font-bold border border-cyan-500/20">{currentPage}</span>
-                            <span className="text-slate-500 text-sm">de {totalPages}</span>
-                        </div>
-                        <button
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-slate-400 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/10 hover:text-white transition-all font-semibold"
-                        >
-                            Siguiente →
-                        </button>
-                    </div>
-                )}
+                <Pagination 
+                    currentPage={currentPage} 
+                    totalPages={totalPages} 
+                    onPageChange={setCurrentPage} 
+                />
             </div>
 
             {/* Modal */}

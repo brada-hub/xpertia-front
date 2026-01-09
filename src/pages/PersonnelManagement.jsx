@@ -2,20 +2,27 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-    getPersonnel,
-    createPersonnel,
-    updatePersonnel,
-    deletePersonnel,
     getCurrentUser,
-    adminLogout
+    adminLogout,
+    updatePersonnel
 } from '../utils/projectsApi';
+import { useDebounce } from '../hooks/useDebounce';
+import { usePersonnel } from '../hooks/usePersonnel';
+import Pagination from '../components/admin/Pagination';
 
 const PersonnelManagement = () => {
     const navigate = useNavigate();
-    const [user, setUser] = useState(null);
-    const [personnel, setPersonnel] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+    const [user] = useState(() => getCurrentUser());
+    const {
+        personnel,
+        loading,
+        error,
+        totalPages,
+        loadPersonnelData,
+        savePerson,
+        removePerson,
+        setError
+    } = usePersonnel();
 
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -30,46 +37,22 @@ const PersonnelManagement = () => {
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
     const [search, setSearch] = useState('');
+    const debouncedSearch = useDebounce(search, 500);
 
     useEffect(() => {
-        setUser(getCurrentUser());
-        loadPersonnel();
-    }, [currentPage, search]);
-
-    const loadPersonnel = async () => {
-        try {
-            setLoading(true);
-            const params = {
-                page: currentPage,
-                per_page: 10,
-                search
-            };
-
-            const response = await getPersonnel(params);
-            if (response.success) {
-                setPersonnel(response.data.personnel);
-                setTotalPages(response.data.pagination.total_pages);
-            }
-        } catch (err) {
-            setError('Error al cargar personal');
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
-    };
+        loadPersonnelData({
+            page: currentPage,
+            search: debouncedSearch
+        });
+    }, [currentPage, debouncedSearch, loadPersonnelData]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        try {
-            if (editingPersonnel) {
-                await updatePersonnel(editingPersonnel.id, formData);
-            } else {
-                await createPersonnel(formData);
-            }
+        const success = await savePerson(formData, editingPersonnel?.id);
+        if (success) {
             setIsModalOpen(false);
-            loadPersonnel();
+            loadPersonnelData({ page: currentPage, search: debouncedSearch });
             setEditingPersonnel(null);
             setFormData({
                 name: '',
@@ -78,18 +61,24 @@ const PersonnelManagement = () => {
                 phone: '',
                 status: 'active'
             });
-        } catch (err) {
-            alert('Error al guardar personal');
         }
     };
 
     const handleDelete = async (id) => {
         if (!confirm('¿Eliminar este empleado? No se puede deshacer.')) return;
+        const success = await removePerson(id);
+        if (!success) {
+            // Error is already set in the hook
+        }
+    };
+
+    const handleStatusChange = async (personId, newStatus) => {
         try {
-            await deletePersonnel(id);
-            loadPersonnel();
+            await updatePersonnel(personId, { status: newStatus });
+            loadPersonnelData({ page: currentPage, search: debouncedSearch });
         } catch (err) {
-            alert('Error al eliminar: ' + (err.message || 'El empleado tiene proyectos asignados'));
+            setError('Error al actualizar el estado');
+            console.error('Error updating status:', err);
         }
     };
 
@@ -190,12 +179,23 @@ const PersonnelManagement = () => {
                                         <td className="px-6 py-4 text-slate-300 text-sm font-medium">{person.position}</td>
                                         <td className="px-6 py-4 text-cyan-400/80 text-sm font-medium">{person.email}</td>
                                         <td className="px-6 py-4">
-                                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${person.status === 'active'
-                                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                                : 'bg-red-500/10 text-red-400 border-red-500/20'
-                                                }`}>
-                                                {person.status === 'active' ? 'Activo' : 'Inactivo'}
-                                            </span>
+                                            <div className="relative inline-block group/status">
+                                                <select
+                                                    value={person.status}
+                                                    onChange={(e) => handleStatusChange(person.id, e.target.value)}
+                                                    className={`appearance-none px-3 py-1 pr-8 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-white/20 shadow-lg ${person.status === 'active'
+                                                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                                        : 'bg-red-500/10 text-red-400 border-red-500/20'
+                                                        }`}
+                                                    style={{ WebkitAppearance: 'none' }}
+                                                >
+                                                    <option value="active" className="bg-[#0f1026] text-white">Activo</option>
+                                                    <option value="inactive" className="bg-[#0f1026] text-white">Inactivo</option>
+                                                </select>
+                                                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[8px] opacity-50 group-hover/status:opacity-100 transition-opacity">
+                                                    ▼
+                                                </div>
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-2">
@@ -222,30 +222,11 @@ const PersonnelManagement = () => {
                     </div>
                 )}
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                    <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between bg-white/[0.01]">
-                        <button
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-slate-400 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/10 hover:text-white transition-all font-semibold"
-                        >
-                            ← Anterior
-                        </button>
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-500 text-sm">Página</span>
-                            <span className="px-3 py-1 bg-cyan-500/10 text-cyan-400 rounded-lg font-bold border border-cyan-500/20">{currentPage}</span>
-                            <span className="text-slate-500 text-sm">de {totalPages}</span>
-                        </div>
-                        <button
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-slate-400 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/10 hover:text-white transition-all font-semibold"
-                        >
-                            Siguiente →
-                        </button>
-                    </div>
-                )}
+                <Pagination 
+                    currentPage={currentPage} 
+                    totalPages={totalPages} 
+                    onPageChange={setCurrentPage} 
+                />
             </div>
 
             {/* Modal */}

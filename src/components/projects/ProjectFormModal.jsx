@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createProject, updateProject, getClients } from '../../utils/projectsApi';
 
-const ProjectFormModal = ({ isOpen, onClose, project = null, onSuccess }) => {
+const ProjectFormModal = ({ isOpen, onClose, project = null, onSuccess, clients: initialClients = [] }) => {
     const [formData, setFormData] = useState({
         name: '',
         type: 'Desarrollo',
@@ -14,7 +14,7 @@ const ProjectFormModal = ({ isOpen, onClose, project = null, onSuccess }) => {
         budget: '',
         observations: ''
     });
-    const [clients, setClients] = useState([]);
+    const [clients, setClients] = useState(initialClients);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [showCustomType, setShowCustomType] = useState(false);
@@ -24,7 +24,11 @@ const ProjectFormModal = ({ isOpen, onClose, project = null, onSuccess }) => {
 
     useEffect(() => {
         if (isOpen) {
-            loadClients();
+            if (initialClients.length === 0) {
+                loadClients();
+            } else {
+                setClients(initialClients);
+            }
             if (project) {
                 const isStandard = standardTypes.includes(project.type);
                 setFormData({

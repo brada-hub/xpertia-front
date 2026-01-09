@@ -2,71 +2,45 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    getContacts,
-    getContactStats,
-    updateContactStatus,
-    deleteContact,
     adminLogout,
     getCurrentUser,
     exportContacts,
 } from '../utils/api';
+import { useDebounce } from '../hooks/useDebounce';
+import { useContacts } from '../hooks/useContacts';
+import Pagination from '../components/admin/Pagination';
 
 const AdminDashboard = () => {
     const navigate = useNavigate();
-    const [user, setUser] = useState(null);
-    const [contacts, setContacts] = useState([]);
-    const [stats, setStats] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+    const [user] = useState(() => getCurrentUser());
+    const {
+        contacts,
+        stats,
+        loading,
+        error,
+        totalPages,
+        loadContacts,
+        changeStatus,
+        removeContact,
+        setError
+    } = useContacts();
 
     // Filters and pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
     const [search, setSearch] = useState('');
+    const debouncedSearch = useDebounce(search, 500);
     const [serviceFilter, setServiceFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
     const [selectedContact, setSelectedContact] = useState(null);
 
     useEffect(() => {
-        const currentUser = getCurrentUser();
-        setUser(currentUser);
-        loadData();
-    }, [currentPage, search, serviceFilter, statusFilter]);
-
-    const loadData = async () => {
-        try {
-            setLoading(true);
-            setError('');
-
-            const params = {
-                page: currentPage,
-                per_page: 10,
-            };
-
-            if (search) params.search = search;
-            if (serviceFilter) params.service = serviceFilter;
-            if (statusFilter) params.status = statusFilter;
-
-            const [contactsResponse, statsResponse] = await Promise.all([
-                getContacts(params),
-                getContactStats(),
-            ]);
-
-            if (contactsResponse.success) {
-                setContacts(contactsResponse.data.contacts);
-                setTotalPages(contactsResponse.data.pagination.total_pages);
-            }
-
-            if (statsResponse.success) {
-                setStats(statsResponse.data);
-            }
-        } catch (err) {
-            setError('Error al cargar los datos');
-            console.error('Error loading data:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
+        loadContacts({
+            page: currentPage,
+            search: debouncedSearch,
+            service: serviceFilter,
+            status: statusFilter
+        });
+    }, [currentPage, debouncedSearch, serviceFilter, statusFilter, loadContacts]);
 
     const handleLogout = async () => {
         try {
@@ -78,57 +52,24 @@ const AdminDashboard = () => {
     };
 
     const handleStatusChange = async (contactId, newStatus) => {
-        try {
-            await updateContactStatus(contactId, newStatus);
-            loadData();
-        } catch (err) {
-            setError('Error al actualizar el estado');
-            console.error('Error updating status:', err);
-        }
+        const success = await changeStatus(contactId, newStatus);
+        if (!success) setError('Error al actualizar el estado');
     };
 
     const handleDelete = async (contactId) => {
         if (!confirm('¿Estás seguro de eliminar este contacto?')) return;
-
-        try {
-            await deleteContact(contactId);
-            loadData();
+        const success = await removeContact(contactId);
+        if (success) {
             setSelectedContact(null);
-        } catch (err) {
-            setError('Error al eliminar el contacto');
-            console.error('Error deleting contact:', err);
         }
     };
 
     const handleExport = () => {
-        const params = {};
-        if (search) params.search = search;
-        if (serviceFilter) params.service = serviceFilter;
-        if (statusFilter) params.status = statusFilter;
-
-        exportContacts(params);
-    };
-
-    const getStatusBadge = (status) => {
-        const badges = {
-            new: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-            read: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-            replied: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-            archived: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-        };
-
-        const labels = {
-            new: 'Nuevo',
-            read: 'Leído',
-            replied: 'Respondido',
-            archived: 'Archivado',
-        };
-
-        return (
-            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${badges[status]} shadow-[0_0_15px_rgba(0,0,0,0.1)]`}>
-                {labels[status]}
-            </span>
-        );
+        exportContacts({
+            search,
+            service: serviceFilter,
+            status: statusFilter
+        });
     };
 
     const formatDate = (dateString) => {
@@ -170,13 +111,13 @@ const AdminDashboard = () => {
 
             {/* Statistics */}
             {stats && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
                     {[
-                        { label: 'Total', value: stats.stats.total, color: 'text-white' },
-                        { label: 'Nuevos', value: stats.stats.new_count, color: 'text-cyan-400' },
-                        { label: 'Leídos', value: stats.stats.read_count, color: 'text-amber-400' },
-                        { label: 'Respondidos', value: stats.stats.replied_count, color: 'text-emerald-400' },
-                        { label: 'Archivados', value: stats.stats.archived_count, color: 'text-slate-400' },
+                        { label: 'Total', value: stats.total, color: 'text-white' },
+                        { label: 'Nuevos', value: stats.new, color: 'text-cyan-400' },
+                        { label: 'Leídos', value: stats.read, color: 'text-amber-400' },
+                        { label: 'Respondidos', value: stats.replied, color: 'text-emerald-400' },
+                        { label: 'Archivados', value: stats.archived || 0, color: 'text-slate-400' },
                     ].map((s, i) => (
                         <div key={i} className="bg-[#0f1026]/40 backdrop-blur-md p-6 rounded-2xl border border-white/5 shadow-xl">
                             <p className="text-slate-500 text-xs mb-1 font-black uppercase tracking-widest">{s.label}</p>
@@ -265,7 +206,30 @@ const AdminDashboard = () => {
                                         <td className="px-6 py-4">
                                             <span className="text-slate-300 text-sm capitalize bg-white/5 px-2 py-1 rounded-lg border border-white/5">{contact.service}</span>
                                         </td>
-                                        <td className="px-6 py-4">{getStatusBadge(contact.status)}</td>
+                                        <td className="px-6 py-4">
+                                            <div className="relative inline-block group/status">
+                                                <select
+                                                    value={contact.status}
+                                                    onChange={(e) => handleStatusChange(contact.id, e.target.value)}
+                                                    className={`
+                                                        px-3 py-1 rounded-full text-xs font-bold border outline-none appearance-none cursor-pointer transition-all shadow-sm
+                                                        ${contact.status === 'new' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' : 
+                                                          contact.status === 'read' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
+                                                          contact.status === 'replied' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                                                          'bg-slate-500/10 text-slate-400 border-slate-500/20'}
+                                                        pr-6
+                                                    `}
+                                                >
+                                                    <option value="new" className="bg-[#0f1026]">Nuevo</option>
+                                                    <option value="read" className="bg-[#0f1026]">Leído</option>
+                                                    <option value="replied" className="bg-[#0f1026]">Respondido</option>
+                                                    <option value="archived" className="bg-[#0f1026]">Archivado</option>
+                                                </select>
+                                                <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50 group-hover/status:opacity-100 transition-opacity">
+                                                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
+                                                </div>
+                                            </div>
+                                        </td>
                                         <td className="px-6 py-4 text-slate-500 text-sm font-medium">{formatDate(contact.created_at)}</td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-2">
@@ -276,21 +240,6 @@ const AdminDashboard = () => {
                                                 >
                                                     👁️
                                                 </button>
-                                                <div className="relative">
-                                                    <select
-                                                        value={contact.status}
-                                                        onChange={(e) => handleStatusChange(contact.id, e.target.value)}
-                                                        className="pl-2 pr-6 py-1.5 bg-white/5 border border-white/10 rounded-lg text-slate-300 text-xs focus:border-cyan-500/50 outline-none appearance-none cursor-pointer hover:bg-white/10 transition-colors"
-                                                    >
-                                                        <option value="new" className="bg-[#0f1026]">Nuevo</option>
-                                                        <option value="read" className="bg-[#0f1026]">Leído</option>
-                                                        <option value="replied" className="bg-[#0f1026]">Respondido</option>
-                                                        <option value="archived" className="bg-[#0f1026]">Archivado</option>
-                                                    </select>
-                                                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
-                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-                                                    </div>
-                                                </div>
                                                 <button
                                                     onClick={() => handleDelete(contact.id)}
                                                     className="p-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500 hover:text-white transition-all shadow-sm"
@@ -307,30 +256,11 @@ const AdminDashboard = () => {
                     </div>
                 )}
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                    <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between bg-white/[0.01]">
-                        <button
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-slate-400 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/10 hover:text-white transition-all font-semibold"
-                        >
-                            ← Anterior
-                        </button>
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-500 text-sm">Página</span>
-                            <span className="px-3 py-1 bg-cyan-500/10 text-cyan-400 rounded-lg font-bold border border-cyan-500/20">{currentPage}</span>
-                            <span className="text-slate-500 text-sm">de {totalPages}</span>
-                        </div>
-                        <button
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-slate-400 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/10 hover:text-white transition-all font-semibold"
-                        >
-                            Siguiente →
-                        </button>
-                    </div>
-                )}
+                <Pagination 
+                    currentPage={currentPage} 
+                    totalPages={totalPages} 
+                    onPageChange={setCurrentPage} 
+                />
             </div>
 
             {/* Contact Detail Modal */}
